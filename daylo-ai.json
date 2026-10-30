@@ -1,0 +1,1097 @@
+{
+  "name": "daylo-ai",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tokenfactory.nebius.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B', reasoning: { enabled: false }, temperature: 0.2, max_tokens: 1500, messages: [ { role: 'system', content: 'You are a scheduling assistant. You receive JSON with action (plan or reschedule), now, timezone, focus_date, prefs (work_hours, peak_window, avoid_after, estimate_multiplier), tasks (id, title, deadline, duration_minutes, priority, importance, scheduled_start, scheduled_end) and an optional exclude list of time ranges that must not be used. Put each task into a concrete time slot on focus_date (or the following working days if they do not fit), inside work_hours and in the given timezone. Put the most important and nearest-deadline tasks in peak_window first. Multiply durations by estimate_multiplier. Slots must never overlap, never start before now, and never fall inside an exclude range. For reschedule, return exactly one new slot for the single task, different from its current scheduled_start. Return valid JSON only, no markdown: {\"summary\": \"one short friendly sentence\", \"plan\": [{\"task_id\": \"task id exactly as given\", \"start\": \"ISO 8601 with timezone offset\", \"end\": \"ISO 8601 with timezone offset\", \"reason\": \"short reason\"}]}' }, { role: 'user', content: JSON.stringify($json.body) } ] }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "f583c99e-03b6-4c0d-a74d-3ff66b6dcfed",
+      "name": "Nemotron - Generate Schedule",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3120,
+        864
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "XajSKwaagjreIYBj",
+          "name": "Header Auth account 14"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-updates",
+              "leftValue": "={{ ($json.updates || []).length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "47073d78-1b72-4f53-b57b-2c0683df0d54",
+      "name": "IF - Has New Times",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3568,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "updates",
+        "options": {}
+      },
+      "id": "662fe48f-d698-4297-b987-2f7bffa02f32",
+      "name": "Split Task Times",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1.1,
+      "position": [
+        3792,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "upsert",
+        "projectId": "hotel-de-port",
+        "collection": "tasks",
+        "updateKey": "id",
+        "columns": "scheduled_start, scheduled_end, updated_at"
+      },
+      "id": "d00fff95-c1fc-4158-b543-f357a838ddb2",
+      "name": "Firestore - Save Task Times",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        4016,
+        864
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "SB8t1eu2oCmo1Odl",
+          "name": "Google Service Account account"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $input.all().map(i => i.json);\nconst failed = rows.some(r => r && r.error);\nlet reply = $('Format Plan Reply').first().json.reply;\nif (failed) reply += \"\\n(Note: I couldn't save the new times to your task list. Please try again.)\";\nreturn [{ json: { reply } }];"
+      },
+      "id": "dfde5700-80d4-4461-9524-a15e969ce8d5",
+      "name": "Confirm Plan Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4240,
+        928
+      ],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ai-assistant",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "97dccaf8-0566-4c7b-b52d-052abc1c5334",
+      "name": "Webhook - Incoming Message",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        368,
+        640
+      ],
+      "webhookId": "founder-assistant"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=YOUR_FIREBASE_WEB_API_KEY",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ idToken: ($json.headers.authorization || '').replace('Bearer ', '') || $json.body.id_token || $json.body.token || '' }) }}",
+        "options": {}
+      },
+      "id": "2026aadd-f212-4b86-aef3-8bb7071d5b54",
+      "name": "Verify Firebase Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        656,
+        672
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "3e1f4f43-55ba-4f38-ab4b-27c7f7d8d5a8",
+              "leftValue": "={{ !!($json.users && $json.users[0] && $json.users[0].localId) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7875b1ed-a7b8-439a-8e1d-cdaad96447d1",
+      "name": "Token Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        880,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tokenfactory.nebius.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B\",\n  \"messages\": [\n    {\"role\": \"system\", \"content\": \"You classify founder messages into exactly one label: store_task (a new task to remember), store_commitment (a promise made to someone), query_status (asking what is open or urgent), reschedule_task (asking to move, delay or reschedule an existing task), plan_day (asking to plan or schedule their day, week or tasks), or general_chat. Reply with ONLY the label, nothing else.\"},\n    {\"role\": \"user\", \"content\": {{ JSON.stringify($('Webhook - Incoming Message').first().json.body.message) }}}\n  ],\n  \"reasoning\": {\"enabled\": false},\n  \"max_tokens\": 10,\n  \"temperature\": 0\n}",
+        "options": {}
+      },
+      "id": "89061af7-fd7b-4d31-84fb-22fcf384d37e",
+      "name": "Nemotron - Classify Intent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1104,
+        576
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "XajSKwaagjreIYBj",
+          "name": "Header Auth account 14"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = String($input.first().json.choices[0].message.content || '').trim().toLowerCase().replace(/[^a-z_]/g, '');\nconst uid = $('Verify Firebase Token').first().json.users[0].localId;\n// founder_id is always the verified Firebase uid, never a value sent by the browser\nreturn [{ json: { ...$('Webhook - Incoming Message').first().json.body, founder_id: uid, uid, intent: raw } }];"
+      },
+      "id": "72983393-3458-4c14-b64e-bc76850c5c1c",
+      "name": "Extract Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "store_task",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "store_commitment",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "query_status",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "reschedule_task",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent }}",
+                    "rightValue": "plan_day",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "31bf667c-90fe-4c82-b3df-7de7f09b9cbc",
+      "name": "Switch - Route by Intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1552,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tokenfactory.nebius.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B\",\n  \"messages\": [\n    {\"role\": \"system\", \"content\": \"Today is {{ $now.toFormat('yyyy-MM-dd') }} ({{ $now.toFormat('cccc') }}). Extract the following fields from the founder's message as strict JSON only: {\\\"content\\\": string, \\\"linked_person\\\": string or null, \\\"due_date\\\": a YYYY-MM-DD string or null (resolve words like Friday or next week using today), \\\"category\\\": \\\"task\\\" or \\\"commitment\\\"}. No prose, JSON only.\"},\n    {\"role\": \"user\", \"content\": {{ JSON.stringify($json.message) }}}\n  ],\n  \"reasoning\": {\"enabled\": false},\n  \"max_tokens\": 200,\n  \"temperature\": 0\n}",
+        "options": {}
+      },
+      "id": "5da8a023-6dbe-4deb-a2f7-eada1d0d4882",
+      "name": "Nemotron - Extract Fields",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3232,
+        0
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "XajSKwaagjreIYBj",
+          "name": "Header Auth account 14"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const enc = (v) => { if (v === null || v === undefined) return { nullValue: null }; if (typeof v === 'string') return { stringValue: v }; if (typeof v === 'boolean') return { booleanValue: v }; if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v }; if (Array.isArray(v)) return { arrayValue: { values: v.map(enc) } }; return { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, enc(x)])) } }; };\nconst raw = String($input.first().json.choices[0].message.content || '');\nconst source = $('Switch - Route by Intent').first().json;\nif (!source.founder_id) {\n  throw new Error('No verified user on this request.');\n}\nlet parsed;\ntry {\n  const m = raw.match(/\\{[\\s\\S]*\\}/);\n  parsed = JSON.parse(m ? m[0] : raw);\n} catch (e) {\n  parsed = { content: source.message, linked_person: null, due_date: null, category: 'task' };\n}\nconst category = (parsed.category === 'commitment' || source.intent === 'store_commitment') ? 'commitment' : 'task';\nconst due = /^\\d{4}-\\d{2}-\\d{2}/.test(parsed.due_date || '') ? parsed.due_date : '';\nconst doc = {\n  uid: source.founder_id,\n  content: parsed.content || source.message,\n  linked_person: parsed.linked_person || '',\n  due_date: due,\n  category,\n  status: 'open',\n  duration_hours: 1,\n  priority: 2,\n  missed_count: 0,\n  created_at: new Date().toISOString()\n};\nreturn [{ json: { ...doc, body: { fields: Object.fromEntries(Object.entries(doc).map(([k, x]) => [k, enc(x)])) } } }];"
+      },
+      "id": "04caff9e-f7e2-4d70-aae1-d1ae632a32b9",
+      "name": "Format Task Doc",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3456,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "create",
+        "projectId": "YOUR_FIREBASE_PROJECT_ID",
+        "collection": "tasks",
+        "columns": "uid, content, linked_person, due_date, category, status, duration_hours, priority, missed_count, created_at"
+      },
+      "id": "26d59f55-2cdd-41e0-a3ec-88fbfa802e86",
+      "name": "Firestore - Save Task",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        3680,
+        0
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "TY3Xoh3mDiWpfJE0",
+          "name": "Google Service Account account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json;\nlet reply;\nif (typeof j.reply === 'string' && j.reply) {\n  reply = j.reply;\n} else if (j.choices && j.choices[0]) {\n  reply = j.choices[0].message.content;\n} else {\n  try {\n    const t = $('Format Task Doc').first().json;\n    reply = `Got it, saved: \"${t.content}\"${t.due_date ? ' (due ' + t.due_date + ')' : ''}.`;\n  } catch (e) {\n    reply = 'Got it, saved.';\n  }\n}\nreturn [{ json: { reply } }];"
+      },
+      "id": "7d5beca8-7064-44af-862b-4419c41b12e4",
+      "name": "Format Final Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4576,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"reply\": $json.reply } }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "52b78c8d-1950-4401-a7fa-f6030ea0d31c",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        4800,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "query",
+        "projectId": "YOUR_FIREBASE_PROJECT_ID",
+        "query": "{\"structuredQuery\":{\"from\":[{\"collectionId\":\"tasks\"}],\"where\":{\"compositeFilter\":{\"op\":\"AND\",\"filters\":[{\"fieldFilter\":{\"field\":{\"fieldPath\":\"uid\"},\"op\":\"EQUAL\",\"value\":{\"stringValue\":\"$1\"} }},{\"fieldFilter\":{\"field\":{\"fieldPath\":\"status\"},\"op\":\"EQUAL\",\"value\":{\"stringValue\":\"open\"}}}]}}}}",
+        "queryParameters": "={{ [$('Extract Intent').first().json.founder_id] }}"
+      },
+      "id": "c09266fa-b194-4bf5-8ef8-f0aaea4f6926",
+      "name": "Firestore - Get Open Tasks",
+      "type": "n8n-nodes-base.googleFirebaseCloudFirestore",
+      "typeVersion": 1.1,
+      "position": [
+        1888,
+        640
+      ],
+      "credentials": {
+        "googleApi": {
+          "id": "TY3Xoh3mDiWpfJE0",
+          "name": "Google Service Account account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const dec = (v) => { if (!v) return null; if ('stringValue' in v) return v.stringValue; if ('integerValue' in v) return Number(v.integerValue); if ('doubleValue' in v) return v.doubleValue; if ('booleanValue' in v) return v.booleanValue; if ('timestampValue' in v) return v.timestampValue; if ('arrayValue' in v) return (v.arrayValue.values || []).map(dec); if ('mapValue' in v) return Object.fromEntries(Object.entries(v.mapValue.fields || {}).map(([k, x]) => [k, dec(x)])); return null; };\nconst decDoc = (d) => { const o = { _id: String(d.name || '').split('/').pop() }; for (const [k, v] of Object.entries(d.fields || {})) o[k] = dec(v); return o; };\nconst input = $input.all().map(i => i.json);\nconst rows = input.map(t => {\n  if (t.document && t.document.fields) return { ...decDoc(t.document), id: decDoc(t.document)._id };\n  if (t.fields && t.name) { const d = decDoc(t); return { ...d, id: d._id }; }\n  if (t.content) return { ...t, id: t.id || t._id || '' };\n  return null;\n}).filter(Boolean);\nreturn rows.length ? rows.map(r => ({ json: r })) : [{ json: {} }];"
+      },
+      "id": "44e7ebca-9cde-4f13-a8be-b06cb1c2ba0e",
+      "name": "Decode Open Tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2112,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "a1b2c3d4-0001-4000-8000-000000000001",
+              "leftValue": "={{ $('Extract Intent').first().json.intent }}",
+              "rightValue": "query_status",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3e436b76-5cba-464f-979b-576c3d1ec211",
+      "name": "IF - Is Status Query",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2336,
+        640
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const tasks = $input.all().map(item => item.json).filter(t => t.content);\nreturn [{ json: { tasks_summary: JSON.stringify(tasks), count: tasks.length } }];"
+      },
+      "id": "823f5600-f3fc-47e9-b303-01f9041edf44",
+      "name": "Combine Tasks",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3344,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tokenfactory.nebius.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\":\"nvidia/nemotron-3-super-120b-a12b\",\n  \"messages\": [\n    {\"role\": \"system\", \"content\": \"You are a founder's executive assistant. Given a JSON list of open tasks (each with content, linked_person, due_date, category), tell the founder in 2-3 conversational sentences what is most urgent and why, then briefly mention anything else outstanding. If the list is empty, say nothing is outstanding.\"},\n    {\"role\": \"user\", \"content\": {{ JSON.stringify($json.tasks_summary) }}}\n  ],\n  \"reasoning\": {\"enabled\": false},\n  \"max_tokens\": 300,\n  \"temperature\": 0.4\n}",
+        "options": {}
+      },
+      "id": "17b3ffab-a445-41f0-8cc6-7b2d60d7716b",
+      "name": "Nemotron Super - Prioritize & Respond",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3568,
+        448
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "XajSKwaagjreIYBj",
+          "name": "Header Auth account 14"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ex = $('Extract Intent').first().json;\nconst rows = $input.all().map(i => i.json).filter(t => t.content);\nconst tz = ex.timezone || 'Africa/Lagos';\nconst msg = String(ex.message || '');\n\nif (!rows.length) {\n  return [{ json: { ready: false, reply: \"You don't have any open tasks to plan yet. Tell me what you need to do and I'll save it.\" } }];\n}\n\nconst reschedule = ex.intent === 'reschedule_task';\nconst stop = new Set(['move','moving','reschedule','delay','postpone','push','shift','later','tomorrow','today','tonight','morning','afternoon','evening','please','could','would','task','with','that','this','from','need','want','next','week','plan','schedule','again','back']);\nconst words = msg.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\\s+/).filter(w => w.length > 3 && !stop.has(w));\nconst hit = r => words.filter(w => (String(r.content) + ' ' + String(r.linked_person || '')).toLowerCase().includes(w)).length;\n\nlet list = rows;\nif (reschedule) {\n  const best = rows.map(r => ({ r, s: hit(r) })).sort((a, b) => b.s - a.s)[0];\n  if (!best || best.s === 0) {\n    return [{ json: { ready: false, reply: \"Which task should I move? Tell me a word from its name, like 'client' or 'budget'.\" } }];\n  }\n  list = [best.r];\n}\n\nconst toTask = r => ({\n  id: r.id,\n  title: r.content,\n  kind: r.category || 'task',\n  project: r.linked_person || 'Inbox',\n  deadline: r.due_date || null,\n  duration_minutes: Math.round((Number(r.duration_hours) || 1) * 60),\n  priority: Number(r.priority) || 2,\n  importance: [0, 2, 3, 5][Number(r.priority) || 2],\n  status: 'open',\n  scheduled_start: r.scheduled_start || null,\n  scheduled_end: r.scheduled_end || null,\n  google_event_id: r.google_event_id || null\n});\n\nconst body = {\n  action: reschedule ? 'reschedule' : 'plan',\n  apply: true,\n  source: 'assistant',\n  message: msg,\n  founder_id: ex.founder_id,\n  userId: ex.founder_id,\n  now: $now.setZone(tz).toISO(),\n  timezone: tz,\n  focus_date: /tomorrow/i.test(msg) ? $now.plus({ days: 1 }).toFormat('yyyy-MM-dd') : $now.toFormat('yyyy-MM-dd'),\n  prefs: { work_hours: '09:00-18:00', peak_window: '09:00-11:00', avoid_after: '18:00', estimate_multiplier: 1.5 },\n  tasks: list.map(toTask)\n};\nif (reschedule && body.tasks[0].scheduled_start) {\n  body.exclude = [{ start: body.tasks[0].scheduled_start, end: body.tasks[0].scheduled_end }];\n}\nreturn [{ json: { ready: true, body } }];"
+      },
+      "id": "48eea7a0-734d-4027-a79f-b1aae0e537ee",
+      "name": "Build Plan Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2672,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "a1b2c3d4-0002-4000-8000-000000000002",
+              "leftValue": "={{ $json.ready }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "feb72c44-62a4-4df7-9380-697de6ea789d",
+      "name": "IF - Ready to Plan",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2896,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const inJ = $input.first().json;\nconst plan = $('Build Plan Request').first().json;\nif (!plan.ready) return [{ json: { reply: plan.reply || \"I couldn't plan that.\", updates: [] } }];\nconst req = plan.body;\nconst tz = req.timezone || 'Africa/Lagos';\nif (inJ.error && !inJ.choices) return [{ json: { reply: \"I couldn't reach the planner just now. Please try again in a moment.\", updates: [] } }];\n\nlet o = {};\nif (inJ.choices && inJ.choices[0]) {\n  const c = String((inJ.choices[0].message && inJ.choices[0].message.content) || '');\n  try { o = JSON.parse(c.slice(c.indexOf('{'), c.lastIndexOf('}') + 1)); } catch (e) { o = {}; }\n}\nconst items = Array.isArray(o.plan) ? o.plan : (Array.isArray(o.schedule) ? o.schedule : []);\nconst tasks = req.tasks || [];\nconst byId = Object.fromEntries(tasks.map(t => [String(t.id), t]));\n\nconst wh = String((req.prefs && req.prefs.work_hours) || '09:00-18:00').split('-');\nconst hm = s => { const p = String(s).split(':'); return { hour: Number(p[0]) || 0, minute: Number(p[1]) || 0, second: 0, millisecond: 0 }; };\nconst startH = hm(wh[0]);\nconst endH = hm(wh[1] || '18:00');\nconst mult = Number(req.prefs && req.prefs.estimate_multiplier) || 1;\nconst now = DateTime.now().setZone(tz);\nconst firstFree = now.startOf('minute').plus({ minutes: 15 - (now.minute % 15) });\n\nconst busy = (req.exclude || [])\n  .map(x => ({ s: DateTime.fromISO(String(x.start)).setZone(tz), e: DateTime.fromISO(String(x.end)).setZone(tz) }))\n  .filter(x => x.s.isValid && x.e.isValid);\nconst clash = (s, e) => busy.some(b => s < b.e && e > b.s);\nconst inHours = (s, e) => s.hasSame(e, 'day') && s >= s.set(startH) && e <= s.set(endH);\nconst nextFree = mins => {\n  let s = firstFree;\n  for (let n = 0; n < 3000; n++) {\n    const dayStart = s.set(startH);\n    const dayEnd = s.set(endH);\n    if (s < dayStart) s = dayStart;\n    const e = s.plus({ minutes: mins });\n    if (e > dayEnd) { s = dayStart.plus({ days: 1 }); continue; }\n    if (clash(s, e)) { s = s.plus({ minutes: 15 }); continue; }\n    return { s, e };\n  }\n  return null;\n};\n\nconst seen = new Set();\nconst fixed = [];\nconst pending = [];\nfor (const i of items) {\n  const id = String(i.task_id || i.taskId || i.id || '');\n  if (!byId[id] || seen.has(id)) continue;\n  seen.add(id);\n  const s = DateTime.fromISO(String(i.start || '')).setZone(tz);\n  const e = DateTime.fromISO(String(i.end || '')).setZone(tz);\n  const cur = byId[id].scheduled_start;\n  const same = req.action === 'reschedule' && cur && s.isValid && Math.abs(s.toMillis() - DateTime.fromISO(String(cur)).toMillis()) < 60000;\n  if (s.isValid && e.isValid && e > s && s >= now && inHours(s, e) && !clash(s, e) && !same) {\n    busy.push({ s, e });\n    fixed.push({ id, s, e, reason: i.reason || '' });\n  } else {\n    pending.push(id);\n  }\n}\nif (req.action === 'reschedule') {\n  for (const t of tasks) if (!seen.has(String(t.id))) pending.push(String(t.id));\n}\nlet adjusted = 0;\nfor (const id of pending) {\n  const mins = Math.max(15, Math.round((Number(byId[id].duration_minutes) || 60) * mult));\n  const slot = nextFree(mins);\n  if (!slot) continue;\n  busy.push(slot);\n  fixed.push({ id, s: slot.s, e: slot.e, reason: '' });\n  adjusted++;\n}\n\nif (!fixed.length) return [{ json: { reply: o.summary || \"I couldn't find a free time for that. Try a different day.\", updates: [] } }];\nfixed.sort((a, b) => a.s.toMillis() - b.s.toMillis());\n\nconst when = d => d.toFormat('ccc, LLL d') + ', ' + d.toFormat('h:mm a');\nconst title = id => (byId[id] && byId[id].title) || 'Task';\nconst chosen = req.action === 'reschedule' ? fixed.slice(0, 1) : fixed;\nlet reply;\nif (req.action === 'reschedule') {\n  const f = chosen[0];\n  reply = 'Done. I moved \"' + title(f.id) + '\" to ' + when(f.s) + ' to ' + f.e.toFormat('h:mm a') + '.' + (f.reason ? ' ' + f.reason : '');\n} else {\n  const lines = chosen.slice(0, 6).map(f => title(f.id) + ': ' + when(f.s) + ' to ' + f.e.toFormat('h:mm a'));\n  reply = (o.summary ? o.summary + '\\n' : \"Here's your plan:\\n\") + lines.join('\\n') + (chosen.length > 6 ? '\\n...and ' + (chosen.length - 6) + ' more.' : '');\n  if (adjusted) reply += '\\n(I moved ' + adjusted + ' slot' + (adjusted > 1 ? 's' : '') + ' that had already passed or clashed.)';\n}\nconst updated_at = new Date().toISOString();\nconst updates = chosen.map(f => ({ id: f.id, scheduled_start: f.s.toISO(), scheduled_end: f.e.toISO(), updated_at }));\nreturn [{ json: { reply, updates } }];\n"
+      },
+      "id": "b8c51594-fd51-4a41-995d-608df771cd64",
+      "name": "Format Plan Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3344,
+        928
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tokenfactory.nebius.com/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\":\"nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B\",\n  \"messages\": [\n    {\"role\": \"system\", \"content\": \"You are a friendly, brief executive assistant chat companion. Reply casually and helpfully.\"},\n    {\"role\": \"user\", \"content\": {{ JSON.stringify($json.message) }}}\n  ],\n  \"reasoning\": {\"enabled\": false},\n  \"max_tokens\": 150,\n  \"temperature\": 0.6\n}",
+        "options": {}
+      },
+      "id": "b5c31c1f-ee2b-4096-a006-6fda89e7419b",
+      "name": "Nemotron - General Chat",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3456,
+        1216
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "XajSKwaagjreIYBj",
+          "name": "Header Auth account 14"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, error: 'Unauthorized' }) }}",
+        "options": {
+          "responseCode": 401,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "a37882fe-233e-42cf-89e5-2ab11fb67807",
+      "name": "Respond 1",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1104,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## Daylo AI - Setup\n\n**Models:** NVIDIA Nemotron 3 Nano 30B A3B (intent, extraction, scheduling, chat) and Nemotron 3 Super 120B A12B (urgency summary), served by Nebius Token Factory (`https://api.tokenfactory.nebius.com/v1`).\n\n1. Create a **Header Auth** credential: Name `Authorization`, Value `Bearer <NEBIUS_API_KEY>`. Select it on the 5 Nemotron HTTP nodes.\n2. Create a Google **Service Account** credential for your Firebase project; select it on the 3 Firestore nodes.\n3. Replace `YOUR_FIREBASE_PROJECT_ID` (Firestore nodes) and `YOUR_FIREBASE_WEB_API_KEY` (Verify Firebase Token node).\n4. Activate the workflow and point the web app at the production webhook URL (`/webhook/founder-assistant`).\n5. The webhook expects `Authorization: Bearer <Firebase ID token>` and a JSON body with `message` and optional `timezone`.",
+        "height": 360,
+        "width": 520
+      },
+      "id": "fb3da19e-1002-43c6-8750-8ac090c604e9",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        0,
+        272
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Nemotron - Generate Schedule": {
+      "main": [
+        [
+          {
+            "node": "Format Plan Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Has New Times": {
+      "main": [
+        [
+          {
+            "node": "Split Task Times",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Confirm Plan Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Task Times": {
+      "main": [
+        [
+          {
+            "node": "Firestore - Save Task Times",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firestore - Save Task Times": {
+      "main": [
+        [
+          {
+            "node": "Confirm Plan Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm Plan Reply": {
+      "main": [
+        [
+          {
+            "node": "Format Final Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook - Incoming Message": {
+      "main": [
+        [
+          {
+            "node": "Verify Firebase Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify Firebase Token": {
+      "main": [
+        [
+          {
+            "node": "Token Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Token Valid?": {
+      "main": [
+        [
+          {
+            "node": "Nemotron - Classify Intent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nemotron - Classify Intent": {
+      "main": [
+        [
+          {
+            "node": "Extract Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Intent": {
+      "main": [
+        [
+          {
+            "node": "Switch - Route by Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch - Route by Intent": {
+      "main": [
+        [
+          {
+            "node": "Nemotron - Extract Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nemotron - Extract Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Firestore - Get Open Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Firestore - Get Open Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Firestore - Get Open Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nemotron - General Chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nemotron - Extract Fields": {
+      "main": [
+        [
+          {
+            "node": "Format Task Doc",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Task Doc": {
+      "main": [
+        [
+          {
+            "node": "Firestore - Save Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firestore - Save Task": {
+      "main": [
+        [
+          {
+            "node": "Format Final Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Final Reply": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Firestore - Get Open Tasks": {
+      "main": [
+        [
+          {
+            "node": "Decode Open Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decode Open Tasks": {
+      "main": [
+        [
+          {
+            "node": "IF - Is Status Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Is Status Query": {
+      "main": [
+        [
+          {
+            "node": "Combine Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Plan Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Tasks": {
+      "main": [
+        [
+          {
+            "node": "Nemotron Super - Prioritize & Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Plan Request": {
+      "main": [
+        [
+          {
+            "node": "IF - Ready to Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Ready to Plan": {
+      "main": [
+        [
+          {
+            "node": "Nemotron - Generate Schedule",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Format Plan Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Plan Reply": {
+      "main": [
+        [
+          {
+            "node": "IF - Has New Times",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nemotron - General Chat": {
+      "main": [
+        [
+          {
+            "node": "Format Final Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nemotron Super - Prioritize & Respond": {
+      "main": [
+        [
+          {
+            "node": "Format Final Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "dd0a28d0-5727-4bff-b1a4-870f4613aa0b",
+  "meta": {
+    "instanceId": "102319d8e8aa4c5eb93b0a606e725efcc7eb7ae75b65d4cccc985ad7817d0cb4"
+  },
+  "nodeGroups": [
+    {
+      "id": "f2d07c15-b613-4e4f-83e6-b7591d6ed284",
+      "name": "Read incoming request",
+      "nodeIds": [
+        "2026aadd-f212-4b86-aef3-8bb7071d5b54",
+        "7875b1ed-a7b8-439a-8e1d-cdaad96447d1",
+        "a37882fe-233e-42cf-89e5-2ab11fb67807",
+        "89061af7-fd7b-4d31-84fb-22fcf384d37e",
+        "72983393-3458-4c14-b64e-bc76850c5c1c",
+        "31bf667c-90fe-4c82-b3df-7de7f09b9cbc"
+      ],
+      "description": "Checks the Firebase sign-in, rejects strangers, then works out what the founder is asking for"
+    },
+    {
+      "id": "c74fca8a-0f65-4a6b-bb31-35d6097dd2c4",
+      "name": "Remember new task",
+      "nodeIds": [
+        "5da8a023-6dbe-4deb-a2f7-eada1d0d4882",
+        "04caff9e-f7e2-4d70-aae1-d1ae632a32b9",
+        "26d59f55-2cdd-41e0-a3ec-88fbfa802e86"
+      ],
+      "description": "Pulls the task, person and due date out of the message and stores it in the task list"
+    },
+    {
+      "id": "d07266b3-3031-467a-b380-a40af0804f26",
+      "name": "Load open tasks",
+      "nodeIds": [
+        "c09266fa-b194-4bf5-8ef8-f0aaea4f6926",
+        "44e7ebca-9cde-4f13-a8be-b06cb1c2ba0e",
+        "3e436b76-5cba-464f-979b-576c3d1ec211"
+      ],
+      "description": "Reads the founder's open tasks, then sends status questions one way and planning requests the other"
+    },
+    {
+      "id": "4a67d4ea-bb46-4cdc-b319-ad9cae50ccbf",
+      "name": "Summarize urgent work",
+      "nodeIds": [
+        "823f5600-f3fc-47e9-b303-01f9041edf44",
+        "17b3ffab-a445-41f0-8cc6-7b2d60d7716b"
+      ],
+      "description": "Answers status questions with the most urgent open work first"
+    },
+    {
+      "id": "c427ac40-056c-4eec-b3ab-1a411fc6d529",
+      "name": "Plan and save schedule",
+      "nodeIds": [
+        "48eea7a0-734d-4027-a79f-b1aae0e537ee",
+        "feb72c44-62a4-4df7-9380-697de6ea789d",
+        "f583c99e-03b6-4c0d-a74d-3ff66b6dcfed",
+        "b8c51594-fd51-4a41-995d-608df771cd64",
+        "47073d78-1b72-4f53-b57b-2c0683df0d54",
+        "662fe48f-d698-4297-b987-2f7bffa02f32",
+        "d00fff95-c1fc-4158-b543-f357a838ddb2",
+        "dfde5700-80d4-4461-9524-a15e969ce8d5"
+      ],
+      "description": "Schedules or moves tasks, replaces past or clashing times, and writes the new times back to each task"
+    },
+    {
+      "id": "49705f30-406e-4c2e-ba18-5c85d6f28104",
+      "name": "Send reply",
+      "nodeIds": [
+        "7d5beca8-7064-44af-862b-4419c41b12e4",
+        "52b78c8d-1950-4401-a7fa-f6030ea0d31c"
+      ],
+      "description": "Returns one chat reply to the app for every kind of request"
+    }
+  ],
+  "id": "b7Jw6zHmK0fGljxY",
+  "tags": []
+}
